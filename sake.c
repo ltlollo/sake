@@ -1,4 +1,4 @@
-// gcc -O0 -g self -o sake -Wall -Wextra -pedantic
+// gcc -O0 -g self -o sake -Wall -Wextra -pedantic -Wno-unused-function
 
 #include <assert.h>
 #include <dirent.h>
@@ -15,10 +15,11 @@
 #define DEALLOC_QUOTA 0x200000
 
 typedef enum PARSE { PARSE_SKIP = 0, PARSE_MODIFY = 1 } PARSE;
-typedef enum FIL { FIL_KEEP = 1, FIL_DISCARD = 0 } FIL;
+typedef enum FIL { FIL_DISCARD = 0, FIL_KEEP = 1 } FIL;
+typedef enum OFILE { OFILE_ERR = 0, OFILE_OUT = 1 } OFILE;
+
 typedef enum POS { POS_BEG, POS_END } POS;
 typedef enum TYPE { TYPE_STR, TYPE_HLIST, TYPE_VLIST } TYPE;
-typedef enum OFILE { FILE_ERR = 0, FILE_OUT = 1 } OFILE;
 typedef enum SYM {
     SYM_GRAM_BEG,
     SYM_TERM_BEG,
@@ -106,6 +107,7 @@ typedef struct QuotaAlloc {
     size_t store;
 } QuotaAlloc;
 
+extern char *__progname;
 static char *plainmk;
 static char *copymk;
 static const char *fname = "m.sk";
@@ -155,57 +157,31 @@ static const unsigned char escape[1 << 8][2] = {
 };
 
 static const char litts[][3] = {
-    [SYM_R_CBRACK] = "}",
-    [SYM_L_CBRACK] = "{",
-    [SYM_R_SBRACK] = "]",
-    [SYM_L_SBRACK] = "[",
-    [SYM_R_RBRACK] = ")",
-    [SYM_L_RBRACK] = "(",
-    [SYM_PLUS] = "+",
-    [SYM_SUB] = "-",
-    [SYM_MUL] = "*",
-    [SYM_DIV] = "/",
-    [SYM_MOD] = "%",
-    [SYM_EQ] = "=",
-    [SYM_HASH] = "#",
-    [SYM_AT] = "@",
+            [SYM_R_CBRACK] = "}", [SYM_L_CBRACK] = "{", [SYM_R_SBRACK] = "]",
+            [SYM_L_SBRACK] = "[", [SYM_R_RBRACK] = ")", [SYM_L_RBRACK] = "(",
+            [SYM_PLUS] = "+",     [SYM_SUB] = "-",      [SYM_MUL] = "*",
+            [SYM_DIV] = "/",      [SYM_MOD] = "%",      [SYM_EQ] = "=",
+            [SYM_HASH] = "#",     [SYM_AT] = "@",
 
-    [SYM_SPACE] = " ",
-    [SYM_NLINE] = "\n",
-    [SYM_TAB] = "\t",
-    [SYM_QUOT] = "\'",
-    [SYM_ESCAPE] = "\\",
-    [SYM_UP] = "^",
-    [SYM_LESS] = "<",
-    [SYM_SEMICOL] = ";",
-    [SYM_LARROW] = "<-",
-    [SYM_RARROW] = "->",
-    [SYM_QCOL] = "::",
+            [SYM_SPACE] = " ",    [SYM_NLINE] = "\n",   [SYM_TAB] = "\t",
+            [SYM_QUOT] = "\'",    [SYM_ESCAPE] = "\\",  [SYM_UP] = "^",
+            [SYM_LESS] = "<",     [SYM_SEMICOL] = ";",  [SYM_LARROW] = "<-",
+            [SYM_RARROW] = "->",  [SYM_QCOL] = "::",
 };
 
 static const char *symmap[1 << 16] = {
-    ['}'] = litts[SYM_R_CBRACK],
-    ['{'] = litts[SYM_L_CBRACK],
-    [']'] = litts[SYM_R_SBRACK],
-    ['['] = litts[SYM_L_SBRACK],
-    [')'] = litts[SYM_R_RBRACK],
-    ['('] = litts[SYM_L_RBRACK],
-    ['+'] = litts[SYM_PLUS],
-    ['-'] = litts[SYM_SUB],
-    ['#'] = litts[SYM_HASH],
-    ['@'] = litts[SYM_AT],
-    ['/'] = litts[SYM_DIV],
-    ['%'] = litts[SYM_MOD],
-    ['*'] = litts[SYM_MUL],
-    ['='] = litts[SYM_EQ],
+            ['}'] = litts[SYM_R_CBRACK], ['{'] = litts[SYM_L_CBRACK],
+            [']'] = litts[SYM_R_SBRACK], ['['] = litts[SYM_L_SBRACK],
+            [')'] = litts[SYM_R_RBRACK], ['('] = litts[SYM_L_RBRACK],
+            ['+'] = litts[SYM_PLUS],     ['-'] = litts[SYM_SUB],
+            ['#'] = litts[SYM_HASH],     ['@'] = litts[SYM_AT],
+            ['/'] = litts[SYM_DIV],      ['%'] = litts[SYM_MOD],
+            ['*'] = litts[SYM_MUL],      ['='] = litts[SYM_EQ],
 
-    ['^'] = litts[SYM_UP],
-    ['<'] = litts[SYM_LESS],
-    [';'] = litts[SYM_SEMICOL],
-    [' '] = litts[SYM_SPACE],
-    ['\t'] = litts[SYM_TAB],
-    ['\\'] = litts[SYM_ESCAPE],
-    ['\''] = litts[SYM_QUOT],
+            ['^'] = litts[SYM_UP],       ['<'] = litts[SYM_LESS],
+            [';'] = litts[SYM_SEMICOL],  [' '] = litts[SYM_SPACE],
+            ['\t'] = litts[SYM_TAB],     ['\\'] = litts[SYM_ESCAPE],
+            ['\''] = litts[SYM_QUOT],
 };
 
 #define chrbeg(arr) ((char **)((arr)->data))
@@ -224,6 +200,7 @@ static void initparse();
 static char *itertokm(char *, int);
 static char *readall(const char *);
 static void sigerrn(size_t, char *);
+static void showerrn(size_t, char *);
 static char *advance(char *, int);
 static int isnotsigil(char *);
 static int isgrammar(char *);
@@ -309,16 +286,19 @@ static struct Hlist *atstr(struct Str *, char **);
 static int cmpstr(const void *, const void *);
 static void atval(struct Var *, char **);
 static void freemem(void *, size_t);
-
+static void print_help(void);
 
 int
 main(int argc, char *argv[]) {
     char *tok;
     int c;
 
-    while ((c = getopt(argc, argv, "i:")) != -1) {
+    while ((c = getopt(argc, argv, "hi:")) != -1) {
         if (c == 'i') {
             fname = optarg;
+        } else if (c == 'h') {
+            print_help();
+            return 0;
         }
     }
     plainmk = readall(fname);
@@ -340,6 +320,17 @@ main(int argc, char *argv[]) {
 
     evalmk(chrbeg(&tokarr), chrend(&tokarr));
     return 0;
+}
+
+static void
+print_help(void) {
+    fprintf(stderr,
+            "%s: [cmd] [-i filename] [-h]"
+            "\n\tcmd<string>: execute command from the loaded script"
+            "\n\t-i filename<string>: script file to load"
+            "\n\t-h: print this message"
+            "\n",
+            __progname);
 }
 
 static void
@@ -458,13 +449,12 @@ itertokm(char *str, int m) {
     return curr;
 }
 
-
 static char *
 readall(const char *fname) {
     FILE *f;
 
     if ((f = fopen(fname, "r")) == NULL) {
-        err(1, "fopen");
+        err(1, "fopen %s", fname);
     }
     if (fseek(f, 0, SEEK_END) == -1) {
         err(1, "fseek");
@@ -488,6 +478,12 @@ readall(const char *fname) {
 
 static void
 sigerrn(size_t n, char *msg) {
+    showerrn(n, msg);
+    exit(EXIT_FAILURE);
+}
+
+static void
+showerrn(size_t n, char *msg) {
     char *errp = itertokm(copymk, PARSE_SKIP);
     size_t nlines = 1;
     size_t pos;
@@ -516,12 +512,12 @@ sigerrn(size_t n, char *msg) {
     cont = *errend == '\0' ? ' ' : ':';
     *errend = '\0';
     pos = errp - errbeg;
-    fprintf(stderr, "error: %s:\n"
-                    "  %s:%lu:%lu:\n"
-                    "  │%s\n"
-                    "  %c%*c\n",
+    fprintf(stderr,
+            "error: %s:\n"
+            "  %s:%lu:%lu:\n"
+            "  │%s\n"
+            "  %c%*c\n",
             msg, fname, nlines, pos, errbeg + 1, cont, (int)pos, '~');
-    exit(EXIT_FAILURE);
 }
 
 static char *
@@ -638,7 +634,7 @@ copyvlist(struct Vlist *vl) {
 
 static void
 copyval(struct Var *dst, struct Var *v) {
-    switch(dst->type = v->type) {
+    switch (dst->type = v->type) {
     case TYPE_STR:
         dst->val.str = copystr(v->val.str);
         break;
@@ -659,7 +655,7 @@ freestr(struct Str *str) {
 static void
 freehlist(struct Hlist *hl) {
     size_t i;
-    
+
     for (i = 0; i < hl->len; ++i) {
         freemem(hl->data[i].data, hl->data[i].len);
     }
@@ -670,7 +666,7 @@ static void
 freevlist(struct Vlist *vl) {
     size_t i;
     size_t j;
-    
+
     for (i = 0; i < vl->len; ++i) {
         for (j = 0; j < vl->data[i].len; ++j) {
             freemem(vl->data[i].data[j].data, vl->data[i].data[j].len);
@@ -682,7 +678,7 @@ freevlist(struct Vlist *vl) {
 
 static void
 freeval(struct Var *dst) {
-    switch(dst->type) {
+    switch (dst->type) {
     case TYPE_STR:
         freestr(dst->val.str);
         break;
@@ -729,15 +725,13 @@ printvlist(FILE *out, struct Vlist *l) {
     fprintf(out, "}\n");
 }
 
-
-
 static void
 printval(struct Var *dst, char *str, enum OFILE out) {
     FILE *ofile = out ? stdout : stderr;
     if (str) {
         printf("%s : ", str);
     }
-    switch(dst->type) {
+    switch (dst->type) {
     case TYPE_STR:
         printstr(ofile, dst->val.str);
         break;
@@ -798,7 +792,6 @@ pushlist(void *l, void *e, size_t s) {
     memcpy(v->data + len, e, s);
 }
 
-
 static Hlist *
 emptyhlist(void) {
     struct Hlist *res = alloc(sizeof(Hlist));
@@ -828,7 +821,7 @@ hashval(struct Var *res) {
     size_t vlen;
     size_t hlen;
 
-    switch(res->type) {
+    switch (res->type) {
     case TYPE_STR:
         res->val.str->hash = 1;
         break;
@@ -868,36 +861,68 @@ exec(struct Var *expr, char **cmd) {
     pid_t pid;
 
     switch (expr->type) {
-        case TYPE_STR:
-            strv = expr->val.str;
-            if (strv->len == 0) {
-                break;
+    case TYPE_STR:
+        strv = expr->val.str;
+        if (strv->len == 0) {
+            break;
+        }
+        size = 2;
+        reallocptr(&argv, 2, sizeof(char *));
+        argv[0] = strv->data;
+        argv[1] = NULL;
+        if ((pid = fork()) < 0) {
+            err(1, "fork");
+        } else if (pid == 0) {
+            execvp(argv[0], argv);
+        } else {
+            if (wait(&result) == -1) {
+                err(1, "wait");
             }
-            size  = 2;
-            reallocptr(&argv, 2, sizeof(char *));
-            argv[0] = strv->data;
-            argv[1] = NULL;
-            if ((pid = fork()) < 0) {
-                err(1, "fork");
-            } else if (pid == 0) {
-                execvp(argv[0], argv);
-            } else {
-                if (wait(&result) == -1) {
-                    err(1, "wait");
-                }
-                if (result) {
-                    sigerrn(cmd - chrbeg(&tokarr), "executed command failed");
-                }
-                break;
+            if (result) {
+                sigerrn(cmd - chrbeg(&tokarr), "executed command failed");
             }
             break;
-        case TYPE_HLIST:
-            hlp = expr->val.hlist;
-            if (hlp->len == 0) {
-                break;
+        }
+        break;
+    case TYPE_HLIST:
+        hlp = expr->val.hlist;
+        if (hlp->len == 0) {
+            break;
+        }
+        size = hlp->len + 1;
+        reallocptr(&argv, hlp->len + 1, sizeof(char *));
+        for (i = 0; i < hlp->len; ++i) {
+            argv[i] = hlp->data[i].data;
+        }
+        argv[hlp->len] = NULL;
+        if ((pid = fork()) < 0) {
+            err(1, "fork");
+        } else if (pid == 0) {
+            execvp(argv[0], argv);
+        } else {
+            if (wait(&result) == -1) {
+                err(1, "wait");
             }
-            size = hlp->len + 1;
-            reallocptr(&argv, hlp->len + 1, sizeof(char *));
+            if (result) {
+                sigerrn(cmd - chrbeg(&tokarr), "failed");
+            }
+            break;
+        }
+        break;
+    case TYPE_VLIST:
+        vl = expr->val.vlist;
+        if (vl->len == 0) {
+            break;
+        }
+        for (j = 0; j < vl->len; ++j) {
+            hlp = vl->data + j;
+            if (hlp->len == 0) {
+                continue;
+            }
+            if (size < hlp->len + 1) {
+                reallocptr(&argv, hlp->len + 1, sizeof(char *));
+                size = hlp->len + 1;
+            }
             for (i = 0; i < hlp->len; ++i) {
                 argv[i] = hlp->data[i].data;
             }
@@ -907,51 +932,19 @@ exec(struct Var *expr, char **cmd) {
             } else if (pid == 0) {
                 execvp(argv[0], argv);
             } else {
-                if (wait(&result) == -1) {
-                    err(1, "wait");
-                }
-                if (result) {
-                    sigerrn(cmd - chrbeg(&tokarr), "failed");
-                }
-                break;
+                ++nspown;
+                continue;
             }
-            break;
-        case TYPE_VLIST:
-            vl = expr->val.vlist;
-            if (vl->len == 0) {
-                break;
+        }
+        for (i = 0; i < nspown; ++i) {
+            if (wait(&result) == -1) {
+                err(1, "wait");
             }
-            for (j = 0; j < vl->len; ++j) {
-                hlp = vl->data + j;
-                if (hlp->len == 0) {
-                    continue;
-                }
-                if (size < hlp->len + 1) {
-                    reallocptr(&argv, hlp->len + 1, sizeof(char *));
-                    size = hlp->len + 1;
-                }
-                for (i = 0; i < hlp->len; ++i) {
-                    argv[i] = hlp->data[i].data;
-                }
-                argv[hlp->len] = NULL;
-                if ((pid = fork()) < 0) {
-                    err(1, "fork");
-                } else if (pid == 0) {
-                    execvp(argv[0], argv);
-                } else {
-                    ++nspown;
-                    continue;
-                }
+            if (result) {
+                sigerrn(cmd - chrbeg(&tokarr), "failed");
             }
-            for (i = 0;i < nspown; ++i) {
-                if (wait(&result) == -1) {
-                    err(1, "wait");
-                }
-                if (result) {
-                    sigerrn(cmd - chrbeg(&tokarr), "failed");
-                }
-            }
-            break;
+        }
+        break;
     }
     freeval(expr);
     freemem(argv, size * sizeof(char *));
@@ -1007,7 +1000,7 @@ evalstmnt(char **beg, char **end) {
         }
         memcpy(aliasval, &expr, sizeof(Var));
 #if DEBUG
-        printval(&expr, *alias, FILE_ERR);
+        printval(&expr, *alias, OFILE_ERR);
 #endif
         return;
     } else {
@@ -1058,7 +1051,7 @@ evalterm(struct Var *res, char **beg, char **end) {
 static char **
 evalbinaryop(struct Var *res, char **beg, char **end) {
     struct Var rhs;
-    char * op = *beg;
+    char *op = *beg;
 
     assert(isbinaryop(op));
 
@@ -1180,13 +1173,13 @@ evalunaryop(struct Var *res, char **beg, char **end) {
     if (isgrammar(*beg)) {
         beg = evalterm(res, beg, end);
     } else {
-        valfromterm(res, *beg++); 
+        valfromterm(res, *beg++);
     }
 
     if (op == litts[SYM_HASH]) {
         hashval(res);
     } else if (op == litts[SYM_LESS]) {
-        printval(res, NULL, FILE_OUT);
+        printval(res, NULL, OFILE_OUT);
     } else if (op == litts[SYM_AT]) {
         atval(res, cmd);
     } else {
@@ -1439,7 +1432,7 @@ convert(struct Var *from, enum TYPE totype) {
     case TYPE_STR:
         if (totype == TYPE_HLIST) {
             from->val.hlist = hlistfromstr(from->val.str);
-        } else if (totype  == TYPE_VLIST) {
+        } else if (totype == TYPE_VLIST) {
             from->val.vlist = vlistfromstr(from->val.str);
         } else {
             assert("BUG: unreacheble");
@@ -1521,7 +1514,7 @@ addstrhlist(struct Str *f, struct Hlist *s) {
         return s;
     }
 
-    prepend(str, f); 
+    prepend(str, f);
     freemem(f->data, f->len);
     freemem(f, sizeof(Str));
     return s;
@@ -1586,7 +1579,7 @@ addhlistvlist(struct Hlist *f, struct Vlist *s) {
     }
     hlv = s->data;
     for (i = 0; i < s->len; ++i) {
-        reallocptr(&hlv[i].data, hlv[i].len + f->len,  sizeof(Str));
+        reallocptr(&hlv[i].data, hlv[i].len + f->len, sizeof(Str));
         memmove(hlv[i].data + f->len, hlv[i].data, f->len * sizeof(Str));
         memcpy(hlv[i].data, f->data, f->len * sizeof(Str));
         for (j = 0; j < f->len; ++j) {
@@ -1629,7 +1622,7 @@ addvlisthlist(struct Vlist *s, struct Hlist *f) {
     return s;
 }
 
-static struct Vlist*
+static struct Vlist *
 addvlistvlist(struct Vlist *f, struct Vlist *s) {
     struct Hlist *fhlv;
     struct Hlist *shlv;
@@ -1657,7 +1650,7 @@ addvlistvlist(struct Vlist *f, struct Vlist *s) {
     }
     fhlv = f->data;
     shlv = s->data;
-    for (i = 0;i < minlen; ++i) {
+    for (i = 0; i < minlen; ++i) {
         nhlen = shlv[i].len + fhlv[i].len;
         reallocptr(&fhlv[i].data, nhlen, sizeof(Str));
         strv = fhlv[i].data + fhlv[i].len;
@@ -1673,7 +1666,6 @@ addvlistvlist(struct Vlist *f, struct Vlist *s) {
     freemem(s->data, s->len * sizeof(Hlist));
     freemem(s, sizeof(Vlist));
     return f;
-
 }
 
 static struct Hlist *
@@ -1718,7 +1710,6 @@ addvliststr(struct Vlist *f, struct Str *s) {
     freestr(s);
     freemem(s, sizeof(Str));
     return f;
-    
 }
 
 static struct Str *
@@ -1763,51 +1754,51 @@ execbinaryop(struct Var *f, struct Var *s, char *op) {
 
 static void
 addval(struct Var *f, struct Var *s) {
-    switch(f->type) {
+    switch (f->type) {
     case TYPE_STR:
-        switch(s->type) {
-            case TYPE_STR:
-                f->type = TYPE_STR;
-                f->val.str = addstrstr(f->val.str, s->val.str);
-                return;
-            case TYPE_HLIST:
-                f->type = TYPE_HLIST;
-                f->val.hlist = addstrhlist(f->val.str, s->val.hlist);
-                return;
-            case TYPE_VLIST:
-                f->type = TYPE_VLIST;
-                f->val.vlist = addstrvlist(f->val.str, s->val.vlist);
-                return;
+        switch (s->type) {
+        case TYPE_STR:
+            f->type = TYPE_STR;
+            f->val.str = addstrstr(f->val.str, s->val.str);
+            return;
+        case TYPE_HLIST:
+            f->type = TYPE_HLIST;
+            f->val.hlist = addstrhlist(f->val.str, s->val.hlist);
+            return;
+        case TYPE_VLIST:
+            f->type = TYPE_VLIST;
+            f->val.vlist = addstrvlist(f->val.str, s->val.vlist);
+            return;
         }
     case TYPE_HLIST:
-        switch(s->type) {
-            case TYPE_STR:
-                f->type = TYPE_HLIST;
-                f->val.hlist = addhliststr(f->val.hlist, s->val.str);
-                return;
-            case TYPE_HLIST:
-                f->type = TYPE_HLIST;
-                f->val.hlist = addhlisthlist(f->val.hlist, s->val.hlist);
-                return;
-            case TYPE_VLIST:
-                f->type = TYPE_VLIST;
-                f->val.vlist = addhlistvlist(f->val.hlist, s->val.vlist);
-                return;
+        switch (s->type) {
+        case TYPE_STR:
+            f->type = TYPE_HLIST;
+            f->val.hlist = addhliststr(f->val.hlist, s->val.str);
+            return;
+        case TYPE_HLIST:
+            f->type = TYPE_HLIST;
+            f->val.hlist = addhlisthlist(f->val.hlist, s->val.hlist);
+            return;
+        case TYPE_VLIST:
+            f->type = TYPE_VLIST;
+            f->val.vlist = addhlistvlist(f->val.hlist, s->val.vlist);
+            return;
         }
     case TYPE_VLIST:
-        switch(s->type) {
-            case TYPE_STR:
-                f->type = TYPE_VLIST;
-                f->val.vlist = addvliststr(f->val.vlist, s->val.str);
-                return;
-            case TYPE_HLIST:
-                f->type = TYPE_VLIST;
-                f->val.vlist = addvlisthlist(f->val.vlist, s->val.hlist);
-                return;
-            case TYPE_VLIST:
-                f->type = TYPE_VLIST;
-                f->val.vlist = addvlistvlist(f->val.vlist, s->val.vlist);
-                return;
+        switch (s->type) {
+        case TYPE_STR:
+            f->type = TYPE_VLIST;
+            f->val.vlist = addvliststr(f->val.vlist, s->val.str);
+            return;
+        case TYPE_HLIST:
+            f->type = TYPE_VLIST;
+            f->val.vlist = addvlisthlist(f->val.vlist, s->val.hlist);
+            return;
+        case TYPE_VLIST:
+            f->type = TYPE_VLIST;
+            f->val.vlist = addvlistvlist(f->val.vlist, s->val.vlist);
+            return;
         }
     }
 }
@@ -1849,7 +1840,6 @@ filthlist(struct Hlist *f, struct Str *s, enum POS pos, enum FIL fil) {
     return f;
 }
 
-
 static struct Hlist *
 subhliststr(struct Hlist *f, struct Str *s, enum POS pos) {
     struct Str *strv = f->data;
@@ -1865,7 +1855,7 @@ subhliststr(struct Hlist *f, struct Str *s, enum POS pos) {
             if (pos == POS_END) {
                 strv[i].data[len - 1] = '\0';
             } else {
-                memmove(strv[i].data, strv[i].data + s->len - 1, len);    
+                memmove(strv[i].data, strv[i].data + s->len - 1, len);
                 strv[i].data[len - 1] = '\0';
             }
             reallocptr(&strv[i].data, len, 1);
@@ -1893,50 +1883,50 @@ subval(struct Var *f, struct Var *s) {
     enum POS pos;
     struct Str *strdel;
 
-    switch(f->type) {
+    switch (f->type) {
     case TYPE_STR:
-        switch(s->type) {
-            case TYPE_STR:
-                errx(1, "unimplemented: %d", __LINE__);
-            case TYPE_HLIST:
-                pos = POS_BEG;
-                strdel = f->val.str;
-                f->type = TYPE_HLIST;
-                f->val.hlist = subhliststr(s->val.hlist, f->val.str, pos);
-                break;
-            case TYPE_VLIST:
-                pos = POS_BEG;
-                strdel = f->val.str;
-                f->type = TYPE_VLIST;
-                f->val.vlist = subvliststr(s->val.vlist, f->val.str, pos);
-                break;
+        switch (s->type) {
+        case TYPE_STR:
+            errx(1, "unimplemented: %d", __LINE__);
+        case TYPE_HLIST:
+            pos = POS_BEG;
+            strdel = f->val.str;
+            f->type = TYPE_HLIST;
+            f->val.hlist = subhliststr(s->val.hlist, f->val.str, pos);
+            break;
+        case TYPE_VLIST:
+            pos = POS_BEG;
+            strdel = f->val.str;
+            f->type = TYPE_VLIST;
+            f->val.vlist = subvliststr(s->val.vlist, f->val.str, pos);
+            break;
         }
         freestr(strdel);
         freemem(strdel, sizeof(Str));
         break;
     case TYPE_HLIST:
-        switch(s->type) {
-            case TYPE_STR:
-                pos = POS_END;
-                f->type = TYPE_HLIST;
-                f->val.hlist = subhliststr(f->val.hlist, s->val.str, pos);
-                freeval(s);
-                return;
-            case TYPE_HLIST:
-            case TYPE_VLIST:
-                errx(1, "unimplemented: %d", __LINE__);
+        switch (s->type) {
+        case TYPE_STR:
+            pos = POS_END;
+            f->type = TYPE_HLIST;
+            f->val.hlist = subhliststr(f->val.hlist, s->val.str, pos);
+            freeval(s);
+            return;
+        case TYPE_HLIST:
+        case TYPE_VLIST:
+            errx(1, "unimplemented: %d", __LINE__);
         }
     case TYPE_VLIST:
-        switch(s->type) {
-            case TYPE_STR:
-                pos = POS_END;
-                f->type = TYPE_VLIST;
-                f->val.vlist = subvliststr(f->val.vlist, s->val.str, pos);
-                freeval(s);
-                return;
-            case TYPE_HLIST:
-            case TYPE_VLIST:
-                errx(1, "unimplemented: %d", __LINE__);
+        switch (s->type) {
+        case TYPE_STR:
+            pos = POS_END;
+            f->type = TYPE_VLIST;
+            f->val.vlist = subvliststr(f->val.vlist, s->val.str, pos);
+            freeval(s);
+            return;
+        case TYPE_HLIST:
+        case TYPE_VLIST:
+            errx(1, "unimplemented: %d", __LINE__);
         }
     }
 }
@@ -1969,51 +1959,51 @@ filtval(struct Var *f, struct Var *s, char *op) {
     enum POS pos;
     struct Str *strdel;
 
-    switch(f->type) {
+    switch (f->type) {
     case TYPE_STR:
-        switch(s->type) {
-            case TYPE_STR:
-                errx(1, "unimplemented: %d", __LINE__);
-            case TYPE_HLIST:
-                pos = POS_BEG;
-                strdel = f->val.str;
-                f->type = TYPE_HLIST;
-                f->val.hlist = filthlist(s->val.hlist, f->val.str, pos, fil);
-                break;
-            case TYPE_VLIST:
-                strdel = f->val.str;
-                pos = POS_BEG;
-                f->type = TYPE_VLIST;
-                f->val.vlist = filtvlist(s->val.vlist, f->val.str, pos, fil);
-                break;
+        switch (s->type) {
+        case TYPE_STR:
+            errx(1, "unimplemented: %d", __LINE__);
+        case TYPE_HLIST:
+            pos = POS_BEG;
+            strdel = f->val.str;
+            f->type = TYPE_HLIST;
+            f->val.hlist = filthlist(s->val.hlist, f->val.str, pos, fil);
+            break;
+        case TYPE_VLIST:
+            strdel = f->val.str;
+            pos = POS_BEG;
+            f->type = TYPE_VLIST;
+            f->val.vlist = filtvlist(s->val.vlist, f->val.str, pos, fil);
+            break;
         }
         freestr(strdel);
         freemem(strdel, sizeof(Str));
         break;
     case TYPE_HLIST:
-        switch(s->type) {
-            case TYPE_STR:
-                pos = POS_END;
-                f->type = TYPE_HLIST;
-                f->val.hlist = filthlist(f->val.hlist, s->val.str, pos, fil);
-                freeval(s);
-                return;
-            case TYPE_HLIST:
-            case TYPE_VLIST:
-                errx(1, "unimplemented: %d", __LINE__);
+        switch (s->type) {
+        case TYPE_STR:
+            pos = POS_END;
+            f->type = TYPE_HLIST;
+            f->val.hlist = filthlist(f->val.hlist, s->val.str, pos, fil);
+            freeval(s);
+            return;
+        case TYPE_HLIST:
+        case TYPE_VLIST:
+            errx(1, "unimplemented: %d", __LINE__);
         }
         break;
     case TYPE_VLIST:
-        switch(s->type) {
-            case TYPE_STR:
-                pos = POS_END;
-                f->type = TYPE_VLIST;
-                f->val.vlist = filtvlist(f->val.vlist, s->val.str, pos, fil);
-                freeval(s);
-                return;
-            case TYPE_HLIST:
-            case TYPE_VLIST:
-                errx(1, "unimplemented: %d", __LINE__);
+        switch (s->type) {
+        case TYPE_STR:
+            pos = POS_END;
+            f->type = TYPE_VLIST;
+            f->val.vlist = filtvlist(f->val.vlist, s->val.str, pos, fil);
+            freeval(s);
+            return;
+        case TYPE_HLIST:
+        case TYPE_VLIST:
+            errx(1, "unimplemented: %d", __LINE__);
         }
     }
 }
@@ -2040,9 +2030,9 @@ atstr(struct Str *dname, char **cmd) {
             reallocptr(&strv, len + 64, sizeof(Str));
         }
     }
-    reallocptr(&strv, len , sizeof(Str));
+    reallocptr(&strv, len, sizeof(Str));
     qsort(strv, len, sizeof(Str), cmpstr);
-    files->len = len; 
+    files->len = len;
     files->data = strv;
     closedir(dir);
     freestr(dname);
@@ -2085,7 +2075,7 @@ freemem(void *p, size_t size) {
         return;
     }
     if (squalo.store + size > DEALLOC_QUOTA) {
-        for (i = 0;i < squalo.delay.len; ++i) {
+        for (i = 0; i < squalo.delay.len; ++i) {
             free(squalo.delay.data[i]);
         }
         squalo.delay.len = 0;
